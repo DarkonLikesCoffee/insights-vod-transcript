@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Insights.gg Transcript</title>
+  <link rel="stylesheet" href="transcript.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="header-main">
+      <div class="brand"><span class="brand-mark">T</span><div><h1>VOD Transcript</h1><p id="subtitle">Open a VOD on Insights.gg, then click Open Transcript.</p></div></div>
+      <div class="header-meta"><span id="language">—</span><span id="count">0 segments</span></div>
+    </div>
+    <section class="toolbar" aria-label="Transcript controls">
+      <input id="search" type="search" placeholder="Search transcript…" aria-label="Search transcript">
+      <button id="settings-toggle" class="tool-button" type="button" aria-expanded="false" aria-controls="settings-panel" title="Transcript settings">⚙ Settings</button>
+      <span id="status" role="status">Waiting for captions…</span>
+    </section>
+    <section id="settings-panel" class="settings-panel" hidden>
+      <div class="setting"><label for="layout-mode">Transcript layout</label><select id="layout-mode"><option value="individual">One caption per row</option><option value="grouped">Grouped paragraphs</option></select></div>
+      <div class="setting"><label for="density">Spacing</label><select id="density"><option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="spacious">Spacious</option></select></div>
+      <div class="setting"><label for="font-size">Text size <output id="font-size-value">13px</output></label><input id="font-size" type="range" min="11" max="20" step="1" value="13"></div>
+      <div class="setting"><label for="font-family">Font</label><select id="font-family"><option value="system">System default</option><option value="arial">Arial</option><option value="verdana">Verdana</option><option value="georgia">Georgia</option><option value="mono">Monospace</option></select></div>
+      <div class="setting"><label for="theme">Theme</label><select id="theme"><option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option></select></div>
+      <div class="setting checks"><label><input id="show-timestamps" type="checkbox" checked> Show timestamps</label><label><input id="auto-scroll" type="checkbox" checked> Follow playback</label></div>
+      <div class="settings-footer"><button id="reset-settings" class="tool-button" type="button">Reset defaults</button><span>Settings are saved automatically.</span></div>
+    </section>
+  </header>
+  <main>
+    <section id="transcript" class="transcript" aria-live="polite">
+      <div class="empty"><h2>Waiting for transcript</h2><p>On the Insights.gg VOD, start playback and enable YouTube captions (CC). The extension will capture the captions when YouTube requests them.</p></div>
+    </section>
+  </main>
+  <script src="transcript.js"></script>
+</body>
+</html>

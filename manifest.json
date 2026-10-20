@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Insights.gg Transcript",
+  "version": "0.9.3",
+  "description": "Open a synchronized transcript window for Insights.gg VODs.",
+  "permissions": [
+    "storage",
+    "windows",
+    "activeTab"
+  ],
+  "host_permissions": [],
+  "action": {
+    "default_title": "Insights.gg Transcript",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://insights.gg/*",
+        "https://*.insights.gg/*"
+      ],
+      "js": [
+        "insights.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://www.youtube-nocookie.com/*",
+        "https://youtube-nocookie.com/*"
+      ],
+      "js": [
+        "youtube-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://youtube.com/*",
+        "https://www.youtube-nocookie.com/*",
+        "https://youtube-nocookie.com/*"
+      ],
+      "js": [
+        "youtube-frame.js"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}
