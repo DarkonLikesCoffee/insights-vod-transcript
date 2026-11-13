@@ -2,6 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id),transcriptEl=$('transcript'),statusEl=$('status'),searchEl=$('search');
   const SETTINGS_KEY='ivwTranscriptSettings';
+  const { groupSegments } = globalThis.InsightsTranscriptUtils;
   const defaults={layout:'individual',density:'compact',fontSize:13,fontFamily:'system',showTimestamps:true,autoScroll:true,theme:'dark'};
   let settings={...defaults},state={videoId:'',language:'',segments:[],currentTime:0,status:'Waiting for captions…'};
   let activeIndex=-1,rows=[],renderedItems=[],displayedSourceTabId=null;
@@ -14,17 +15,20 @@
     container.append(document.createTextNode(value.slice(cursor)));
   }
   function getDisplayItems(){
-    const segments=state.segments||[];
-    if(settings.layout!=='grouped')return segments.map((s,i)=>({start:Number(s.start)||0,end:(Number(s.start)||0)+(Number(s.duration)||0),text:String(s.text||'').trim(),firstIndex:i,lastIndex:i}));
-    const groups=[];let group=null,wordCount=0;
-    for(let i=0;i<segments.length;i++){
-      const segment=segments[i],start=Number(segment.start)||0,text=String(segment.text||'').trim();if(!text)continue;
-      const words=text.match(/\\S+/g)||[];
-      if(!group){group={start,end:start+(Number(segment.duration)||0),text,firstIndex:i,lastIndex:i};wordCount=words.length;}
-      else{group.text+=` ${text}`;group.end=Math.max(group.end,start+(Number(segment.duration)||0));group.lastIndex=i;wordCount+=words.length;}
-      if(wordCount>=100){groups.push(group);group=null;wordCount=0;}
-    }
-    if(group)groups.push(group);return groups;
+    const segments=Array.isArray(state.segments)?state.segments:[];
+    if(settings.layout==='grouped') return groupSegments(segments);
+    return segments.map((segment,index)=>{
+      const start=Number(segment.start)||0;
+      const duration=Number(segment.duration)||0;
+      const end=Number(segment.end);
+      return {
+        start,
+        end:duration>0?start+duration:(Number.isFinite(end)&&end>start?end:start),
+        text:String(segment.text||'').replace(/\\s+/g,' ').trim(),
+        firstIndex:index,
+        lastIndex:index
+      };
+    }).filter(item=>item.text);
   }
   function applySettingsToDom(){
     document.body.dataset.density=settings.density;document.body.dataset.theme=settings.theme;document.body.dataset.layout=settings.layout;document.body.dataset.showTimestamps=String(settings.showTimestamps);
