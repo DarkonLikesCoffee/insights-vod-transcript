@@ -9,6 +9,21 @@
     return String(text || '').match(/\S+/g)?.length || 0;
   }
 
+  function parseJson3(json) {
+    if (!json || !Array.isArray(json.events)) return [];
+    return json.events.flatMap(event => {
+      const text = (event.segs || [])
+        .map(segment => segment.utf8 || '')
+        .join('')
+        .replace(/\\s+/g, ' ')
+        .trim();
+      if (!text) return [];
+      const start = Math.max(0, Number(event.tStartMs) || 0) / 1000;
+      const duration = Math.max(0, Number(event.dDurationMs) || 0) / 1000;
+      return [{ start, duration, end: start + duration, text }];
+    });
+  }
+
   function groupSegments(segments, options = {}) {
     const maxWords = Math.max(10, Number(options.maxWords) || DEFAULT_MAX_WORDS);
     const pauseSeconds = Math.max(0, Number(options.pauseSeconds) || DEFAULT_PAUSE_SECONDS);
@@ -58,7 +73,7 @@
     return result;
   }
 
-  const api = Object.freeze({ normalizeText, countWords, groupSegments });
+  const api = Object.freeze({ normalizeText, countWords, parseJson3, groupSegments });
   root.InsightsTranscriptUtils = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
