@@ -14,7 +14,8 @@
     "https://*.insights.gg/*"
   ],
   "action": {
-    "default_title": "Open Insights.gg Transcript"
+    "default_title": "Open Insights.gg Transcript",
+    "default_popup": "popup.html"
   },
   "side_panel": {
     "default_path": "transcript.html"
