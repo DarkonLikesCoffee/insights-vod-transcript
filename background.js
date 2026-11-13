@@ -111,7 +111,6 @@ async function openTranscript(tabId,mode){
   sourceTabId=tabId;activeTabId=tabId;displayMode=mode;
   await chrome.storage.local.set({[SOURCE_KEY]:sourceTabId,[MODE_KEY]:displayMode});
   await getContext(tabId);
-  try{await chrome.sidePanel.setOptions({tabId,enabled:false});}catch(_){}
   if(windowId!=null){
     try{
       const win=await chrome.windows.get(windowId,{populate:true});
