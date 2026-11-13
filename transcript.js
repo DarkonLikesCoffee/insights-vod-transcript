@@ -76,7 +76,7 @@
     if(message?.type==='IVW_STATE'){
       if(isWindowMode&&message.sourceTabId!=null&&message.sourceTabId!==fixedSourceTabId)return;
       if(!isWindowMode&&message.target==='sidepanel'){
-        if(Number(message.revision)||0<latestDisplayRevision)return;
+        if((Number(message.revision)||0)<latestDisplayRevision)return;
         latestDisplayRevision=Math.max(latestDisplayRevision,Number(message.revision)||0);
         if(message.sourceTabId!=null)displayedSourceTabId=message.sourceTabId;
       }
