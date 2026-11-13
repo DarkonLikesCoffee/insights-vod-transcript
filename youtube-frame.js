@@ -44,9 +44,10 @@
         return;
       }
       const videoId = new URLSearchParams(location.search).get('v') || location.pathname.match(/\/embed\/([^/?]+)/)?.[1] || 'unknown';
-      const key = `${videoId}:${segments.length}:${segments[0]?.start}:${segments[0]?.text}`;
+      const key = `${videoId}:${fingerprint(segments)}`;
       if (sent.has(key)) return;
       sent.add(key);
+      if (sent.size > 20) sent.delete(sent.values().next().value);
       console.info(PREFIX, 'captured YouTube timedtext response', { videoId, segments: segments.length });
       chrome.runtime.sendMessage({
         type: 'IVW_TRANSCRIPT', videoId,
