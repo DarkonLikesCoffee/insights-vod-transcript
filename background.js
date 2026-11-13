@@ -83,22 +83,32 @@ async function resetVideo(tabId,videoId){
   if(displayMode==='window'&&tabId===sourceTabId)await publishState(tabId,'window');
   return context;
 }
+async function activateSidePanel(tabId, openPanel = true){
+  await ready;
+  if(tabId==null)throw new Error('No active Insights.gg VOD tab.');
+  sourceTabId=tabId;activeTabId=tabId;displayMode='sidepanel';
+  await chrome.storage.local.set({[SOURCE_KEY]:sourceTabId,[MODE_KEY]:displayMode});
+  await getContext(tabId);
+  await chrome.sidePanel.setOptions({tabId,path:'transcript.html',enabled:true});
+  if(openPanel) await chrome.sidePanel.open({tabId});
+  if(windowId!=null){
+    try{await chrome.windows.remove(windowId);}catch(_){}
+    windowId=null;await chrome.storage.local.remove(WINDOW_KEY);
+  }
+  await publishState(tabId,'sidepanel');
+}
+
 async function openTranscript(tabId,mode){
   await ready;
   if(tabId==null)throw new Error('No active Insights.gg VOD tab.');
+  if(mode==='sidepanel'){
+    await activateSidePanel(tabId,true);
+    return;
+  }
   sourceTabId=tabId;activeTabId=tabId;displayMode=mode;
   await chrome.storage.local.set({[SOURCE_KEY]:sourceTabId,[MODE_KEY]:displayMode});
   await getContext(tabId);
-  if(mode==='sidepanel'){
-    await chrome.sidePanel.setOptions({tabId,path:'transcript.html',enabled:true});
-    await chrome.sidePanel.open({tabId});
-    if(windowId!=null){
-      try{await chrome.windows.remove(windowId);}catch(_){}
-      windowId=null;await chrome.storage.local.remove(WINDOW_KEY);
-    }
-    await publishState(tabId,'sidepanel');
-    return;
-  }
+  try{await chrome.sidePanel.setOptions({tabId,enabled:false});}catch(_){}
   if(windowId!=null){
     try{
       const win=await chrome.windows.get(windowId);
@@ -125,13 +135,23 @@ chrome.action.onClicked.addListener(async tab=>{
   }catch(error){console.warn(PREFIX,'could not open Side Panel',error);}
 });
 chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
+  if(message?.type==='IVW_DISPLAY_SELECTED'||message?.type==='IVW_OPEN_TRANSCRIPT'){
+    (async()=>{
+      await ready;
+      const tabId=message.sourceTabId??sender.tab?.id;
+      if(tabId==null)throw new Error('No active Insights.gg VOD tab.');
+      if(message.type==='IVW_DISPLAY_SELECTED')await activateSidePanel(tabId,false);
+      else await openTranscript(tabId,message.mode==='window'?'window':'sidepanel');
+      sendResponse({ok:true});
+    })().catch(error=>{
+      console.warn(PREFIX,'could not change transcript display mode',error);
+      sendResponse({ok:false,error:error.message||'Could not open transcript.'});
+    });
+    return true;
+  }
+
   (async()=>{
     await ready;
-    if(message?.type==='IVW_OPEN_TRANSCRIPT'){
-      const tabId=message.sourceTabId??sender.tab?.id;
-      if(tabId!=null)await openTranscript(tabId,message.mode==='window'?'window':'sidepanel');
-      return;
-    }
     if(message?.type==='IVW_GET_STATE'){
       if(sender.id!==chrome.runtime.id||!sender.url?.startsWith(chrome.runtime.getURL('transcript.html')))return;
       const url=new URL(sender.url);
