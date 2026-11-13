@@ -7,12 +7,28 @@
   const PREFIX = '[Insights VOD Workspace]';
   const sent = new Set();
 
+  function getVideoId() {
+    return new URLSearchParams(location.search).get('v') ||
+      location.pathname.match(/\\/embed\\/([^/?]+)/)?.[1] || '';
+  }
+
+  function fingerprint(segments) {
+    const input = segments.map(item => `${item.start}| ${item.text}`).join('¦');
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i += 1) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16);
+  }
+
   function parseJson3(json) {
     return (json.events || []).flatMap(event => {
       const text = (event.segs || []).map(s => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
       if (!text) return [];
       const start = Number(event.tStartMs || 0) / 1000;
-      return [{ start, end: start + Number(event.dDurationMs || 0) / 1000, text }];
+      const duration = Math.max(0, Number(event.dDurationMs || 0) / 1000);
+      return [{ start, duration, end: start + duration, text }];
     });
   }
 
