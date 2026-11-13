@@ -24,7 +24,7 @@
       return {
         start,
         end:duration>0?start+duration:(Number.isFinite(end)&&end>start?end:start),
-        text:String(segment.text||'').replace(/\\s+/g,' ').trim(),
+        text:normalizeText(segment.text),
         firstIndex:index,
         lastIndex:index
       };
