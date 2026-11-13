@@ -104,6 +104,13 @@ async function openTranscript(tabId, mode) {
   if (mode === 'sidepanel') {
     await chrome.sidePanel.setOptions({ tabId, path: 'transcript.html', enabled: true });
     await chrome.sidePanel.open({ tabId });
+    // Side Panel is the primary display. Close the fallback window so both
+    // views cannot compete for the same active-tab context.
+    if (windowId != null) {
+      try { await chrome.windows.remove(windowId); } catch (_) {}
+      windowId = null;
+      await chrome.storage.local.remove(WINDOW_KEY);
+    }
     await publishState(tabId, 'sidepanel');
     return;
   }
@@ -117,6 +124,9 @@ async function openTranscript(tabId, mode) {
     } catch (_) { windowId = null; }
   }
 
+  // Selecting the separate-window mode hides the Side Panel for this tab
+  // and leaves the current transcript window as the sole active display.
+  try { await chrome.sidePanel.setOptions({ tabId, enabled: false }); } catch (_) {}
   const created = await chrome.windows.create({
     url: chrome.runtime.getURL(`transcript.html?mode=window&sourceTabId=${tabId}`),
     type: 'popup', focused: true, width: 620, height: 760
