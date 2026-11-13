@@ -58,14 +58,15 @@ async function sendWindow(message){
 }
 async function publishState(tabId,mode=displayMode){
   const context=await getContext(tabId);
-  const payload={type:'IVW_STATE',sourceTabId:tabId,state:{...context.state,currentTime:context.currentTime}};
+  if(mode==='sidepanel'&&tabId!==activeTabId)return;
+  const payload={type:'IVW_STATE',sourceTabId:tabId,revision:Date.now(),state:{...context.state,currentTime:context.currentTime}};
   if(mode==='window')await sendWindow(payload);
   else{try{await chrome.runtime.sendMessage({...payload,target:'sidepanel'});}catch(_){}}
 }
 async function showNoVodState(tabId){
   try{
     await chrome.runtime.sendMessage({
-      type:'IVW_STATE',target:'sidepanel',sourceTabId:tabId,
+      type:'IVW_STATE',target:'sidepanel',sourceTabId:tabId,revision:Date.now(),
       state:{...initialState(),status:'Open an Insights.gg VOD to view its transcript.'}
     });
   }catch(_){}
@@ -182,7 +183,7 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
       else if(videoId&&!context.activeVideoId)context.activeVideoId=videoId;
       context.currentTime=Number(message.currentTime)||0;
       if(displayMode==='sidepanel'&&tabId===activeTabId){
-        try{await chrome.runtime.sendMessage({type:'IVW_TIME',target:'sidepanel',sourceTabId:tabId,videoId,currentTime:context.currentTime});}catch(_){}
+        try{await chrome.runtime.sendMessage({type:'IVW_TIME',target:'sidepanel',sourceTabId:tabId,revision:Date.now(),videoId,currentTime:context.currentTime});}catch(_){}
       }
       if(displayMode==='window'&&tabId===sourceTabId)await sendWindow({type:'IVW_TIME',sourceTabId:tabId,videoId,currentTime:context.currentTime});
       return;
@@ -191,8 +192,11 @@ chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
       const videoId=message.videoId||'';
       if(videoId&&context.activeVideoId&&videoId!==context.activeVideoId)await resetVideo(tabId,videoId);
       if(videoId)context.activeVideoId=videoId;
-      const segments=Array.isArray(message.segments)?message.segments:[];
-      context.state={...context.state,videoId,playerVideoId:videoId||context.activeVideoId,language:message.language||'',segments,currentTime:context.currentTime,status:segments.length?'Transcript ready':(message.status||'No captions found for this video.')};
+      const receivedSegments=Array.isArray(message.segments)?message.segments:[];
+      // An empty timedtext response must not erase captions already captured
+      // for this same video (YouTube can issue empty follow-up requests).
+      const segments=receivedSegments.length?receivedSegments:context.state.segments;
+      context.state={...context.state,videoId,playerVideoId:videoId||context.activeVideoId,language:message.language||context.state.language||'',segments,currentTime:context.currentTime,status:segments.length?'Transcript ready':(message.status||'No captions found for this video.')};
       await persistContext(tabId,context);
       if(displayMode==='sidepanel'&&tabId===activeTabId)await publishState(tabId,'sidepanel');
       if(displayMode==='window'&&tabId===sourceTabId)await publishState(tabId,'window');
