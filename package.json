@@ -1,0 +1,9 @@
+{
+  "name": "insights-vod-transcript",
+  "version": "1.0.1",
+  "private": true,
+  "description": "Synchronized transcript for Insights.gg VODs.",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
