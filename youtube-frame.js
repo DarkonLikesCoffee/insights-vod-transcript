@@ -12,6 +12,7 @@
   if (!(parentHost === 'insights.gg' || parentHost.endsWith('.insights.gg'))) return;
 
   const PREFIX = '[Insights VOD Transcript]';
+  const { parseJson3 } = globalThis.InsightsTranscriptUtils;
   const sent = new Set();
   let lastSentBucket = -1;
 
@@ -31,22 +32,6 @@
       hash = Math.imul(hash, 16777619);
     }
     return (hash >>> 0).toString(16);
-  }
-
-  function parseJson3(json) {
-    if (!json || !Array.isArray(json.events)) return [];
-    return json.events.flatMap(event => {
-      const text = (event.segs || [])
-        .map(segment => segment.utf8 || '')
-        .join('')
-        .replace(/\s+/g, ' ')
-        .trim();
-      if (!text) return [];
-
-      const start = Math.max(0, Number(event.tStartMs) || 0) / 1000;
-      const duration = Math.max(0, Number(event.dDurationMs) || 0) / 1000;
-      return [{ start, duration, end: start + duration, text }];
-    });
   }
 
   function sendTranscript(body, language) {
