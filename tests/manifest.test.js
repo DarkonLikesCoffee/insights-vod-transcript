@@ -35,3 +35,8 @@ test('the transcript page loads its utility before the renderer', () => {
   const html = fs.readFileSync(path.join(root, 'transcript.html'), 'utf8');
   assert.ok(html.indexOf('transcript-utils.js') < html.indexOf('transcript.js'));
 });
+
+test('the embedded player loads shared parsing utilities before its listener', () => {
+  const playerScript = manifest.content_scripts.find(script => script.js.includes('youtube-frame.js'));
+  assert.deepEqual(playerScript.js, ['transcript-utils.js', 'youtube-frame.js']);
+});
