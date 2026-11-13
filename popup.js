@@ -3,57 +3,75 @@
 const sidePanelButton = document.getElementById('open-sidepanel');
 const windowButton = document.getElementById('open-window');
 const hint = document.getElementById('hint');
+let currentVodTabId = null;
 
-async function getCurrentVodTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url) throw new Error('Open an Insights.gg VOD page first.');
-
-  const url = new URL(tab.url);
-  const isInsights = url.hostname === 'insights.gg' || url.hostname.endsWith('.insights.gg');
-  if (!isInsights || !url.pathname.startsWith('/dashboard/video/')) {
-    throw new Error('Open an Insights.gg VOD page first.');
+function isInsightsVod(tab) {
+  if (!tab?.id || !tab.url) return false;
+  try {
+    const url = new URL(tab.url);
+    const hostMatches = url.hostname === 'insights.gg' || url.hostname.endsWith('.insights.gg');
+    return hostMatches && url.pathname.startsWith('/dashboard/video/');
+  } catch (_) {
+    return false;
   }
-  return tab;
 }
 
-async function open(mode, button) {
-  button.disabled = true;
-  hint.textContent = '';
-
+async function initialize() {
   try {
-    const tab = await getCurrentVodTab();
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!isInsightsVod(tab)) throw new Error('Open an Insights.gg VOD page first.');
+    currentVodTabId = tab.id;
+    await chrome.sidePanel.setOptions({
+      tabId: currentVodTabId,
+      path: 'transcript.html',
+      enabled: true
+    });
+    sidePanelButton.disabled = false;
+    windowButton.disabled = false;
+    hint.textContent = 'The Side Panel is the default experience.';
+  } catch (error) {
+    sidePanelButton.disabled = true;
+    windowButton.disabled = true;
+    hint.textContent = error.message || 'Could not detect an Insights.gg VOD tab.';
+  }
+}
 
-    if (mode === 'sidepanel') {
-      // Open directly from this click handler so Chrome receives the required
-      // user activation for sidePanel.open().
-      await chrome.sidePanel.setOptions({
-        tabId: tab.id,
-        path: 'transcript.html',
-        enabled: true
-      });
-      await chrome.sidePanel.open({ tabId: tab.id });
+sidePanelButton.addEventListener('click', () => {
+  if (currentVodTabId == null) return;
+  sidePanelButton.disabled = true;
 
+  // This API call is deliberately the first asynchronous operation in the
+  // click handler so it retains the direct user gesture required by Chrome.
+  chrome.sidePanel.open({ tabId: currentVodTabId })
+    .then(async () => {
       const result = await chrome.runtime.sendMessage({
         type: 'IVW_DISPLAY_SELECTED',
-        sourceTabId: tab.id
+        sourceTabId: currentVodTabId
       });
       if (!result?.ok) throw new Error(result?.error || 'Could not activate the Side Panel.');
-    } else {
-      const result = await chrome.runtime.sendMessage({
-        type: 'IVW_OPEN_TRANSCRIPT',
-        sourceTabId: tab.id,
-        mode: 'window'
-      });
-      if (!result?.ok) throw new Error(result?.error || 'Could not open the transcript window.');
-    }
+      window.close();
+    })
+    .catch(error => {
+      hint.textContent = error.message || 'Could not open the Side Panel.';
+      sidePanelButton.disabled = false;
+    });
+});
 
+windowButton.addEventListener('click', async () => {
+  if (currentVodTabId == null) return;
+  windowButton.disabled = true;
+  try {
+    const result = await chrome.runtime.sendMessage({
+      type: 'IVW_OPEN_TRANSCRIPT',
+      sourceTabId: currentVodTabId,
+      mode: 'window'
+    });
+    if (!result?.ok) throw new Error(result?.error || 'Could not open the transcript window.');
     window.close();
   } catch (error) {
-    hint.textContent = error.message || 'Could not open transcript. Reload the extension and try again.';
-  } finally {
-    button.disabled = false;
+    hint.textContent = error.message || 'Could not open the transcript window.';
+    windowButton.disabled = false;
   }
-}
+});
 
-sidePanelButton.addEventListener('click', () => open('sidepanel', sidePanelButton));
-windowButton.addEventListener('click', () => open('window', windowButton));
+initialize();
