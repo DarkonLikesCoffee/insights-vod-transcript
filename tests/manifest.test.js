@@ -12,13 +12,14 @@ test('manifest configures a shared transcript page as the Side Panel', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.side_panel.default_path, 'transcript.html');
   assert.ok(manifest.permissions.includes('sidePanel'));
-  assert.equal(manifest.action.default_popup, undefined);
+  assert.equal(manifest.action.default_popup, 'popup.html');
 });
 
 test('every declared extension asset exists', () => {
   const declared = [
     manifest.background.service_worker,
     manifest.side_panel.default_path,
+    manifest.action.default_popup,
     ...manifest.content_scripts.flatMap(script => script.js),
     'popup.html',
     'popup.js',
