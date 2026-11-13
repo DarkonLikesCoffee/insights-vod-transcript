@@ -86,7 +86,7 @@
       if (!paragraph) {
         paragraph = { start: safeStart, end, text, firstIndex: index, lastIndex: index };
       } else {
-        paragraph.text += \` \${text}\`;
+        paragraph.text += ' ' + text;
         paragraph.end = Math.max(paragraph.end, end);
         paragraph.lastIndex = index;
       }
