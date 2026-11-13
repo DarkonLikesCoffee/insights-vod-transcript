@@ -1,7 +1,7 @@
 'use strict';
 
 const PREFIX = '[Insights Transcript]';
-const STATE_KEY = tabId => `ivwTranscriptState:${tabId}`;
+const STATE_KEY = id => `ivwTranscriptState:${id}`;
 const SOURCE_KEY = 'ivwSourceTabId';
 const WINDOW_KEY = 'ivwTranscriptWindowId';
 const MODE_KEY = 'ivwDisplayMode';
@@ -11,8 +11,6 @@ const initialState = () => ({
   updatedAt: Date.now()
 });
 
-// Keep one independent context per Insights tab. The Side Panel follows the
-// active browser tab; a separate window stays pinned to the VOD that opened it.
 const contexts = new Map();
 let sourceTabId = null;
 let windowId = null;
@@ -29,23 +27,17 @@ const ready = (async () => {
 function isVodUrl(url) {
   try {
     const parsed = new URL(url);
-    return /(^|\.)insights\.gg$/i.test(parsed.hostname) &&
-      /^\/dashboard\/video\//.test(parsed.pathname);
-  } catch (_) {
-    return false;
-  }
+    return /(^|\.)insights\.gg$/i.test(parsed.hostname) && /^\/dashboard\/video\//.test(parsed.pathname);
+  } catch (_) { return false; }
 }
 
 async function getContext(tabId) {
   await ready;
-  if (!contexts.has(tabId)) {
-    const context = { state: initialState(), activeVideoId: '', currentTime: 0, loaded: false };
-    contexts.set(tabId, context);
-  }
+  if (!contexts.has(tabId)) contexts.set(tabId, { state: initialState(), activeVideoId: '', currentTime: 0, loaded: false });
   const context = contexts.get(tabId);
   if (!context.loaded) {
-    const stored = await chrome.storage.local.get(STATE_KEY(tabId));
-    if (stored[STATE_KEY(tabId)]) context.state = stored[STATE_KEY(tabId)];
+    const data = await chrome.storage.local.get(STATE_KEY(tabId));
+    if (data[STATE_KEY(tabId)]) context.state = data[STATE_KEY(tabId)];
     context.activeVideoId = context.state.playerVideoId || context.state.videoId || '';
     context.currentTime = Number(context.state.currentTime) || 0;
     context.loaded = true;
@@ -58,36 +50,34 @@ async function persistContext(tabId, context) {
   await chrome.storage.local.set({ [STATE_KEY(tabId)]: context.state });
 }
 
-async function getActiveVodTab() {
+async function activeVodTabId() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (tab?.id && isVodUrl(tab.url || '')) return tab.id;
-  return null;
+  return tab?.id && isVodUrl(tab.url || '') ? tab.id : null;
 }
 
-async function sendToWindow(message) {
+async function sendWindow(message) {
   if (windowId == null) return;
   try {
     const win = await chrome.windows.get(windowId, { populate: true });
     const tabId = win.tabs?.[0]?.id;
     if (tabId != null) await chrome.tabs.sendMessage(tabId, message);
-  } catch (_) {
-    // The transcript window may be in the process of closing.
-  }
+  } catch (_) {}
 }
 
 async function publishState(tabId, mode = displayMode) {
   const context = await getContext(tabId);
-  const payload = { type: 'IVW_STATE', state: { ...context.state, currentTime: context.currentTime }, sourceTabId: tabId };
-  if (mode === 'window') {
-    await sendToWindow(payload);
-  } else {
-    // Runtime messages are received by the single Side Panel document. The
-    // sourceTabId lets it ignore late messages from tabs that are no longer active.
+  const payload = {
+    type: 'IVW_STATE',
+    sourceTabId: tabId,
+    state: { ...context.state, currentTime: context.currentTime }
+  };
+  if (mode === 'window') await sendWindow(payload);
+  else {
     try { await chrome.runtime.sendMessage({ ...payload, target: 'sidepanel' }); } catch (_) {}
   }
 }
 
-async function resetForVideo(tabId, videoId) {
+async function resetVideo(tabId, videoId) {
   const context = await getContext(tabId);
   if (!videoId || context.activeVideoId === videoId) return context;
   context.activeVideoId = videoId;
@@ -97,13 +87,14 @@ async function resetForVideo(tabId, videoId) {
   next.status = 'Waiting for captions for this video. Enable CC if needed.';
   context.state = next;
   await persistContext(tabId, context);
-  if (tabId === activeTabId) await publishState(tabId);
+  if (tabId === activeTabId) await publishState(tabId, 'sidepanel');
+  if (displayMode === 'window' && tabId === sourceTabId) await publishState(tabId, 'window');
   return context;
 }
 
 async function openTranscript(tabId, mode) {
   await ready;
-  if (!tabId) throw new Error('No active Insights.gg VOD tab.');
+  if (tabId == null) throw new Error('No active Insights.gg VOD tab.');
   sourceTabId = tabId;
   activeTabId = tabId;
   displayMode = mode;
@@ -123,26 +114,20 @@ async function openTranscript(tabId, mode) {
       await chrome.windows.update(windowId, { focused: true });
       await publishState(tabId, 'window');
       return;
-    } catch (_) {
-      windowId = null;
-    }
+    } catch (_) { windowId = null; }
   }
 
-  const win = await chrome.windows.create({
+  const created = await chrome.windows.create({
     url: chrome.runtime.getURL(`transcript.html?mode=window&sourceTabId=${tabId}`),
-    type: 'popup',
-    focused: true,
-    width: 620,
-    height: 760
+    type: 'popup', focused: true, width: 620, height: 760
   });
-  windowId = win.id;
+  windowId = created.id;
   await chrome.storage.local.set({ [WINDOW_KEY]: windowId });
 }
 
 chrome.action.onClicked.addListener(async tab => {
   try {
-    if (!tab?.id || !isVodUrl(tab.url || '')) return;
-    await openTranscript(tab.id, 'sidepanel');
+    if (tab?.id && isVodUrl(tab.url || '')) await openTranscript(tab.id, 'sidepanel');
   } catch (error) {
     console.warn(PREFIX, 'could not open Side Panel', error);
   }
@@ -153,41 +138,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     await ready;
 
     if (message?.type === 'IVW_OPEN_TRANSCRIPT') {
-      const tabId = message.sourceTabId ?? sender.tab?.id ?? await getActiveVodTab();
-      if (tabId == null) return;
-      await openTranscript(tabId, message.mode === 'window' ? 'window' : 'sidepanel');
+      const tabId = message.sourceTabId ?? sender.tab?.id ?? await activeVodTabId();
+      if (tabId != null) await openTranscript(tabId, message.mode === 'window' ? 'window' : 'sidepanel');
       return;
     }
 
     if (message?.type === 'IVW_GET_STATE') {
-      if (sender.id !== chrome.runtime.id ||
-          !sender.url?.startsWith(chrome.runtime.getURL('transcript.html'))) return;
+      if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('transcript.html'))) return;
       const url = new URL(sender.url);
-      const tabId = url.searchParams.get('mode') === 'window'
+      const mode = url.searchParams.get('mode') === 'window' ? 'window' : 'sidepanel';
+      const tabId = mode === 'window'
         ? Number(url.searchParams.get('sourceTabId')) || sourceTabId
-        : await getActiveVodTab();
+        : await activeVodTabId();
       const context = tabId != null ? await getContext(tabId) : null;
       sendResponse({
         state: context ? { ...context.state, currentTime: context.currentTime } : initialState(),
-        sourceTabId: tabId,
-        displayMode: url.searchParams.get('mode') === 'window' ? 'window' : 'sidepanel'
+        sourceTabId: tabId, displayMode: mode
       });
       return;
     }
 
     if (message?.type === 'IVW_SEEK_TIME') {
-      if (sender.id !== chrome.runtime.id ||
-          !sender.url?.startsWith(chrome.runtime.getURL('transcript.html'))) return;
+      if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('transcript.html'))) return;
       const url = new URL(sender.url);
       const tabId = url.searchParams.get('mode') === 'window'
         ? Number(url.searchParams.get('sourceTabId')) || sourceTabId
-        : await getActiveVodTab();
+        : await activeVodTabId();
       if (tabId != null) {
         try {
-          await chrome.tabs.sendMessage(tabId, {
-            type: 'IVW_SEEK_TIME',
-            time: Math.max(0, Number(message.time) || 0)
-          });
+          await chrome.tabs.sendMessage(tabId, { type: 'IVW_SEEK_TIME', time: Math.max(0, Number(message.time) || 0) });
         } catch (_) {}
       }
       return;
@@ -199,11 +178,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (message?.type === 'IVW_TIME') {
       const videoId = message.videoId || '';
-      if (videoId && context.activeVideoId && videoId !== context.activeVideoId) {
-        await resetForVideo(tabId, videoId);
-      } else if (videoId && !context.activeVideoId) {
-        context.activeVideoId = videoId;
-      }
+      if (videoId && context.activeVideoId && videoId !== context.activeVideoId) await resetVideo(tabId, videoId);
+      else if (videoId && !context.activeVideoId) context.activeVideoId = videoId;
       context.currentTime = Number(message.currentTime) || 0;
       if (tabId === activeTabId) {
         try {
@@ -214,27 +190,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         } catch (_) {}
       }
       if (displayMode === 'window' && tabId === sourceTabId) {
-        await sendToWindow({ type: 'IVW_TIME', sourceTabId: tabId, videoId, currentTime: context.currentTime });
+        await sendWindow({ type: 'IVW_TIME', sourceTabId: tabId, videoId, currentTime: context.currentTime });
       }
       return;
     }
 
     if (message?.type === 'IVW_TRANSCRIPT') {
       const videoId = message.videoId || '';
-      if (videoId && context.activeVideoId && videoId !== context.activeVideoId) {
-        await resetForVideo(tabId, videoId);
-      }
+      if (videoId && context.activeVideoId && videoId !== context.activeVideoId) await resetVideo(tabId, videoId);
       if (videoId) context.activeVideoId = videoId;
       const segments = Array.isArray(message.segments) ? message.segments : [];
       context.state = {
-        ...context.state,
-        videoId,
-        playerVideoId: videoId || context.activeVideoId,
-        language: message.language || '',
-        segments,
-        currentTime: context.currentTime,
-        status: segments.length ? 'Transcript ready' :
-          (message.status || 'No captions found for this video.')
+        ...context.state, videoId, playerVideoId: videoId || context.activeVideoId,
+        language: message.language || '', segments, currentTime: context.currentTime,
+        status: segments.length ? 'Transcript ready' : (message.status || 'No captions found for this video.')
       };
       await persistContext(tabId, context);
       if (tabId === activeTabId) await publishState(tabId, 'sidepanel');
@@ -257,17 +226,30 @@ chrome.tabs.onActivated.addListener(async info => {
   await ready;
   activeTabId = info.tabId;
   const tab = await chrome.tabs.get(info.tabId).catch(() => null);
-  if (!tab || !isVodUrl(tab.url || '')) return;
-  await publishState(info.tabId, 'sidepanel');
+  if (!tab) return;
+  if (isVodUrl(tab.url || '')) await publishState(info.tabId, 'sidepanel');
+  else {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'IVW_STATE', target: 'sidepanel', sourceTabId: info.tabId,
+        state: { ...initialState(), status: 'Open an Insights.gg VOD to view its transcript.' }
+      });
+    } catch (_) {}
+  }
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   await ready;
-  if (tab.active && (changeInfo.status === 'complete' || changeInfo.url)) {
-    if (isVodUrl(tab.url || '')) {
-      activeTabId = tabId;
-      await publishState(tabId, 'sidepanel');
-    }
+  if (!tab.active || !(changeInfo.status === 'complete' || changeInfo.url)) return;
+  activeTabId = tabId;
+  if (isVodUrl(tab.url || '')) await publishState(tabId, 'sidepanel');
+  else {
+    try {
+      await chrome.runtime.sendMessage({
+        type: 'IVW_STATE', target: 'sidepanel', sourceTabId: tabId,
+        state: { ...initialState(), status: 'Open an Insights.gg VOD to view its transcript.' }
+      });
+    } catch (_) {}
   }
 });
 
