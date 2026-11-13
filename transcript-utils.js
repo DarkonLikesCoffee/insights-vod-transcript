@@ -51,11 +51,27 @@
         : Number.isFinite(segmentEnd) && segmentEnd > safeStart
           ? segmentEnd
           : safeStart;
-      const words = countWords(text);
+      const wordList = text.split(/\\s+/);
+      const words = wordList.length;
       const gap = paragraph ? safeStart - paragraph.end : 0;
 
       if (paragraph && gap > pauseSeconds && paragraphWords >= 8) flush();
       if (paragraph && paragraphWords + words > maxWords) flush();
+
+      // A single unusually long caption must not bypass the paragraph limit.
+      if (words > maxWords) {
+        flush();
+        for (let offset = 0; offset < words; offset += maxWords) {
+          result.push({
+            start: safeStart,
+            end,
+            text: wordList.slice(offset, offset + maxWords).join(' '),
+            firstIndex: index,
+            lastIndex: index
+          });
+        }
+        continue;
+      }
 
       if (!paragraph) {
         paragraph = { start: safeStart, end, text, firstIndex: index, lastIndex: index };
