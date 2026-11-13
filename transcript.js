@@ -5,7 +5,7 @@
   const { groupSegments, normalizeText } = globalThis.InsightsTranscriptUtils;
   const defaults={layout:'individual',density:'compact',fontSize:13,fontFamily:'system',showTimestamps:true,autoScroll:true,theme:'dark'};
   let settings={...defaults},state={videoId:'',language:'',segments:[],currentTime:0,status:'Waiting for captions…'};
-  let activeIndex=-1,rows=[],renderedItems=[],displayedSourceTabId=null;
+  let activeIndex=-1,rows=[],renderedItems=[],displayedSourceTabId=null,latestDisplayRevision=0;
   const params=new URLSearchParams(location.search),isWindowMode=params.get('mode')==='window',fixedSourceTabId=Number(params.get('sourceTabId'))||null;
   const fmt=value=>{const n=Math.max(0,Math.floor(Number(value)||0)),h=Math.floor(n/3600),m=Math.floor(n%3600/60),s=n%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`:`${m}:${String(s).padStart(2,'0')}`;};
   function appendHighlightedText(container,value,query){
@@ -67,22 +67,30 @@
     settings={layout:$('layout-mode').value,density:$('density').value,fontSize:Number($('font-size').value),fontFamily:$('font-family').value,theme:$('theme').value,showTimestamps:$('show-timestamps').checked,autoScroll:$('auto-scroll').checked};saveSettings();
   }
   $('settings-toggle').addEventListener('click',()=>{const panel=$('settings-panel');panel.hidden=!panel.hidden;$('settings-toggle').setAttribute('aria-expanded',String(!panel.hidden));});
-  ['layout-mode','density','font-size','font-family','theme','show-timestamps','auto-scroll'].forEach(id=>$(id).addEventListener('input',onSettingChange));
+  ['layout-mode','density','font-family','theme','show-timestamps','auto-scroll'].forEach(id=>$(id).addEventListener('change',onSettingChange));
+  $('font-size').addEventListener('input',onSettingChange);
   $('reset-settings').addEventListener('click',()=>{settings={...defaults};saveSettings();});
   searchEl.addEventListener('input',()=>{const query=searchEl.value.trim();rows.forEach((row,i)=>{const text=row.querySelector('.text');text.replaceChildren();appendHighlightedText(text,renderedItems[i].text,query);});});
   chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes[SETTINGS_KEY]?.newValue){settings={...defaults,...changes[SETTINGS_KEY].newValue};applySettingsToDom();render();}});
   chrome.runtime.onMessage.addListener(message=>{
     if(message?.type==='IVW_STATE'){
       if(isWindowMode&&message.sourceTabId!=null&&message.sourceTabId!==fixedSourceTabId)return;
-      if(!isWindowMode&&message.target==='sidepanel'&&message.sourceTabId!=null&&displayedSourceTabId!=null&&message.sourceTabId!==displayedSourceTabId)return;
-      if(!isWindowMode&&message.target==='sidepanel'&&message.sourceTabId!=null)displayedSourceTabId=message.sourceTabId;
+      if(!isWindowMode&&message.target==='sidepanel'){
+        if(Number(message.revision)||0<latestDisplayRevision)return;
+        latestDisplayRevision=Math.max(latestDisplayRevision,Number(message.revision)||0);
+        if(message.sourceTabId!=null)displayedSourceTabId=message.sourceTabId;
+      }
       applyState(message.state);
     }
     if(message?.type==='IVW_TIME'){
       if(isWindowMode&&message.sourceTabId!=null&&message.sourceTabId!==fixedSourceTabId)return;
-      if(!isWindowMode&&message.target==='sidepanel'&&message.sourceTabId!=null&&message.sourceTabId!==displayedSourceTabId)return;
+      if(!isWindowMode&&message.target==='sidepanel'){
+        if((Number(message.revision)||0)<latestDisplayRevision)return;
+        latestDisplayRevision=Math.max(latestDisplayRevision,Number(message.revision)||0);
+        if(message.sourceTabId!=null&&message.sourceTabId!==displayedSourceTabId)return;
+      }
       if(message.videoId&&state.videoId&&message.videoId!==state.videoId){state={...state,videoId:message.videoId,language:'',segments:[],currentTime:Number(message.currentTime)||0,status:'Waiting for captions for this video. Enable CC if needed.'};render();}
-      else{state.currentTime=Number(message.currentTime)||0;updateActive();}
+      else{if(message.videoId&&!state.videoId)state.videoId=message.videoId;state.currentTime=Number(message.currentTime)||0;updateActive();}
     }
   });
   async function refreshState(){
