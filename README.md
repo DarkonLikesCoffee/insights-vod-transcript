@@ -9,7 +9,7 @@ Version 1.0.1. Chrome Manifest V3 extension that captures captions from the embe
 - The separate window remains pinned to the VOD that opened it.
 - Search highlights matching text without hiding other captions.
 - Click a caption or paragraph to seek the embedded player.
-- Choose individual captions or grouped paragraphs. Grouped paragraphs are split at sentence boundaries, meaningful pauses, and an 85-word maximum.
+- Choose individual captions or grouped paragraphs. Grouped paragraphs are split at sentence boundaries, meaningful pauses, and an 85-word maximum. Very long single caption events are split too.
 - Customize spacing, text size, font, theme, timestamps, and playback auto-follow.
 - Playback time is relayed in memory; transcript data is persisted per VOD tab.
 
