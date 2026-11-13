@@ -5,164 +5,255 @@
   const statusEl = $('status');
   const searchEl = $('search');
   const SETTINGS_KEY = 'ivwTranscriptSettings';
-  const defaults = { layout: 'individual', density: 'compact', fontSize: 13, fontFamily: 'system', showTimestamps: true, autoScroll: true, theme: 'dark' };
+  const defaults = { layout:'individual', density:'compact', fontSize:13, fontFamily:'system', showTimestamps:true, autoScroll:true, theme:'dark' };
   let settings = { ...defaults };
   let state = { videoId:'', language:'', segments:[], currentTime:0, status:'Waiting for captions…' };
   let activeIndex = -1;
   let rows = [];
   let renderedItems = [];
+  let sidePanelSourceTabId = null;
+  const params = new URLSearchParams(location.search);
+  const isWindowMode = params.get('mode') === 'window';
+  const fixedSourceTabId = Number(params.get('sourceTabId')) || null;
+
   const fmt = value => {
     const n = Math.max(0, Math.floor(Number(value) || 0));
     const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), s = n % 60;
     return h ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` : `${m}:${String(s).padStart(2,'0')}`;
   };
+
   function appendHighlightedText(container, value, query) {
     if (!query) { container.textContent = value; return; }
-    const lower = value.toLocaleLowerCase();
-    const q = query.toLocaleLowerCase();
+    const lower = value.toLocaleLowerCase(), q = query.toLocaleLowerCase();
     let cursor = 0, at;
     while ((at = lower.indexOf(q, cursor)) !== -1) {
       container.append(document.createTextNode(value.slice(cursor, at)));
-      const mark = document.createElement('mark'); mark.textContent = value.slice(at, at + q.length); container.append(mark);
+      const mark = document.createElement('mark');
+      mark.textContent = value.slice(at, at + q.length);
+      container.append(mark);
       cursor = at + q.length;
     }
     container.append(document.createTextNode(value.slice(cursor)));
   }
-  // Group captions into substantial blocks of approximately 100 words.
-  // Caption boundaries are preserved; a block may exceed 100 words slightly
-  // when the final caption contains several words.
+
   function getDisplayItems() {
     const segments = state.segments || [];
-    if (settings.layout !== 'grouped') return segments.map((s, i) => ({ start: Number(s.start) || 0, end: (Number(s.start) || 0) + (Number(s.duration) || 0), text: String(s.text || '').trim(), firstIndex: i, lastIndex: i }));
-    const targetWords = 100;
+    if (settings.layout !== 'grouped') {
+      return segments.map((s, i) => ({
+        start: Number(s.start) || 0,
+        end: (Number(s.start) || 0) + (Number(s.duration) || 0),
+        text: String(s.text || '').trim(), firstIndex: i, lastIndex: i
+      }));
+    }
     const groups = [];
-    let group = null;
-    let wordCount = 0;
+    let group = null, wordCount = 0;
     for (let i = 0; i < segments.length; i++) {
-      const s = segments[i];
-      const start = Number(s.start) || 0;
-      const text = String(s.text || '').trim();
+      const segment = segments[i], start = Number(segment.start) || 0;
+      const text = String(segment.text || '').trim();
       if (!text) continue;
-      const words = text.match(/\S+/g) || [];
+      const words = text.match(/\\S+/g) || [];
       if (!group) {
-        group = { start, end: start + (Number(s.duration) || 0), text, firstIndex: i, lastIndex: i };
+        group = { start, end: start + (Number(segment.duration) || 0), text, firstIndex: i, lastIndex: i };
         wordCount = words.length;
       } else {
         group.text += ` ${text}`;
-        group.end = Math.max(group.end, start + (Number(s.duration) || 0));
+        group.end = Math.max(group.end, start + (Number(segment.duration) || 0));
         group.lastIndex = i;
         wordCount += words.length;
       }
-      if (wordCount >= targetWords) {
-        groups.push(group);
-        group = null;
-        wordCount = 0;
-      }
+      if (wordCount >= 100) { groups.push(group); group = null; wordCount = 0; }
     }
     if (group) groups.push(group);
     return groups;
   }
+
   function applySettingsToDom() {
     document.body.dataset.density = settings.density;
     document.body.dataset.theme = settings.theme;
     document.body.dataset.layout = settings.layout;
     document.body.dataset.showTimestamps = String(settings.showTimestamps);
     document.body.style.setProperty('--transcript-font-size', `${settings.fontSize}px`);
-    const fonts = { system: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif', arial: 'Arial, sans-serif', verdana: 'Verdana, sans-serif', georgia: 'Georgia, serif', mono: 'ui-monospace, SFMono-Regular, Consolas, monospace' };
+    const fonts = {
+      system: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif',
+      arial: 'Arial, sans-serif', verdana: 'Verdana, sans-serif',
+      georgia: 'Georgia, serif', mono: 'ui-monospace, SFMono-Regular, Consolas, monospace'
+    };
     document.body.style.setProperty('--transcript-font', fonts[settings.fontFamily] || fonts.system);
-    $('layout-mode').value = settings.layout; $('density').value = settings.density;
-    $('font-size').value = String(settings.fontSize); $('font-size-value').textContent = `${settings.fontSize}px`;
-    $('font-family').value = settings.fontFamily; $('theme').value = settings.theme;
-    $('show-timestamps').checked = settings.showTimestamps; $('auto-scroll').checked = settings.autoScroll;
+    $('layout-mode').value = settings.layout;
+    $('density').value = settings.density;
+    $('font-size').value = String(settings.fontSize);
+    $('font-size-value').textContent = `${settings.fontSize}px`;
+    $('font-family').value = settings.fontFamily;
+    $('theme').value = settings.theme;
+    $('show-timestamps').checked = settings.showTimestamps;
+    $('auto-scroll').checked = settings.autoScroll;
   }
+
   async function saveSettings() {
     applySettingsToDom();
     try { await chrome.storage.local.set({ [SETTINGS_KEY]: settings }); } catch (_) {}
     render();
   }
+
   function render() {
     const query = searchEl.value.trim();
-    const frag = document.createDocumentFragment(); rows = []; renderedItems = getDisplayItems();
+    const fragment = document.createDocumentFragment();
+    rows = [];
+    renderedItems = getDisplayItems();
     renderedItems.forEach((item, index) => {
-      const row = document.createElement('article'); row.className = 'segment'; row.dataset.index = String(index); row.title = 'Click to jump to this moment';
+      const row = document.createElement('article');
+      row.className = 'segment';
+      row.dataset.index = String(index);
+      row.title = 'Click to jump to this moment';
       if (settings.showTimestamps) {
-        const time = document.createElement('button'); time.className = 'time'; time.type = 'button'; time.textContent = fmt(item.start); time.setAttribute('aria-label', `Jump to ${fmt(item.start)}`);
+        const time = document.createElement('button');
+        time.className = 'time';
+        time.type = 'button';
+        time.textContent = fmt(item.start);
+        time.setAttribute('aria-label', `Jump to ${fmt(item.start)}`);
         row.append(time);
       }
-      const text = document.createElement('span'); text.className = 'text'; appendHighlightedText(text, item.text, query); row.append(text);
+      const text = document.createElement('span');
+      text.className = 'text';
+      appendHighlightedText(text, item.text, query);
+      row.append(text);
       row.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'IVW_SEEK_TIME', time: item.start }));
-      frag.append(row); rows.push(row);
+      fragment.append(row);
+      rows.push(row);
     });
-    transcriptEl.replaceChildren(frag);
+    transcriptEl.replaceChildren(fragment);
     if (!rows.length) {
-      const empty = document.createElement('div'); empty.className = 'empty';
-      const title = document.createElement('h2'); title.textContent = 'Waiting for transcript';
-      const p = document.createElement('p'); p.textContent = state.status || 'Open a VOD on Insights.gg and enable YouTube captions (CC).'; empty.append(title,p); transcriptEl.append(empty);
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      const title = document.createElement('h2');
+      title.textContent = 'Waiting for transcript';
+      const p = document.createElement('p');
+      p.textContent = state.status || 'Open an Insights.gg VOD and enable YouTube captions (CC).';
+      empty.append(title, p);
+      transcriptEl.append(empty);
     }
-    $('count').textContent = settings.layout === 'grouped' ? `${state.segments.length.toLocaleString()} captions · ${renderedItems.length.toLocaleString()} paragraphs` : `${state.segments.length.toLocaleString()} captions`;
+    $('count').textContent = settings.layout === 'grouped'
+      ? `${state.segments.length.toLocaleString()} captions · ${renderedItems.length.toLocaleString()} paragraphs`
+      : `${state.segments.length.toLocaleString()} captions`;
     $('language').textContent = state.language ? state.language.toUpperCase() : '—';
-    $('subtitle').textContent = state.videoId ? `Video: ${state.videoId}` : 'Connected to the Insights.gg VOD tab';
+    $('subtitle').textContent = state.videoId ? `Video: ${state.videoId}` : 'Connected to the active Insights.gg VOD';
     statusEl.textContent = state.status || 'Waiting for captions…';
-    activeIndex = -1; updateActive();
+    activeIndex = -1;
+    updateActive();
   }
+
   function updateActive() {
     if (!renderedItems.length) return;
-    const t = Number(state.currentTime) || 0;
-    let found = -1;
-    // Find the latest item whose start time is <= current playback time.
-    // O(log n) instead of scanning every rendered caption on every time update.
-    let low = 0;
-    let high = renderedItems.length - 1;
+    const time = Number(state.currentTime) || 0;
+    let low = 0, high = renderedItems.length - 1, found = -1;
     while (low <= high) {
       const mid = (low + high) >> 1;
-      if (renderedItems[mid].start <= t) {
-        found = mid;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
+      if (renderedItems[mid].start <= time) { found = mid; low = mid + 1; }
+      else high = mid - 1;
     }
     if (found === activeIndex) return;
-    rows[activeIndex]?.classList.remove('active'); activeIndex = found;
-    const row = rows[found]; if (!row) return;
+    rows[activeIndex]?.classList.remove('active');
+    activeIndex = found;
+    const row = rows[found];
+    if (!row) return;
     row.classList.add('active');
-    if (settings.autoScroll && document.visibilityState === 'visible') row.scrollIntoView({ block:'nearest', behavior:'smooth' });
+    if (settings.autoScroll && document.visibilityState === 'visible') {
+      row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   }
+
   function applyState(next) {
     if (!next) return;
     const incomingSegments = Array.isArray(next.segments) ? next.segments : state.segments;
-    const oldKey = JSON.stringify([state.videoId, state.language, state.segments]);
-    const newKey = JSON.stringify([next.videoId ?? state.videoId, next.language ?? state.language, incomingSegments]);
+    const previousKey = JSON.stringify([state.videoId, state.language, state.segments]);
+    const nextKey = JSON.stringify([next.videoId ?? state.videoId, next.language ?? state.language, incomingSegments]);
     state = { ...state, ...next, segments: incomingSegments };
-    if (oldKey !== newKey) render(); else { statusEl.textContent = state.status || ''; updateActive(); }
+    if (previousKey !== nextKey) render();
+    else { statusEl.textContent = state.status || ''; updateActive(); }
   }
+
   function onSettingChange() {
-    settings = { layout: $('layout-mode').value, density: $('density').value, fontSize: Number($('font-size').value), fontFamily: $('font-family').value, theme: $('theme').value, showTimestamps: $('show-timestamps').checked, autoScroll: $('auto-scroll').checked };
+    settings = {
+      layout: $('layout-mode').value, density: $('density').value,
+      fontSize: Number($('font-size').value), fontFamily: $('font-family').value,
+      theme: $('theme').value, showTimestamps: $('show-timestamps').checked,
+      autoScroll: $('auto-scroll').checked
+    };
     saveSettings();
   }
+
   $('settings-toggle').addEventListener('click', () => {
-    const panel = $('settings-panel'); panel.hidden = !panel.hidden; $('settings-toggle').setAttribute('aria-expanded', String(!panel.hidden));
+    const panel = $('settings-panel');
+    panel.hidden = !panel.hidden;
+    $('settings-toggle').setAttribute('aria-expanded', String(!panel.hidden));
   });
-  ['layout-mode','density','font-size','font-family','theme','show-timestamps','auto-scroll'].forEach(id => $(id).addEventListener('input', onSettingChange));
+  ['layout-mode','density','font-size','font-family','theme','show-timestamps','auto-scroll']
+    .forEach(id => $(id).addEventListener('input', onSettingChange));
   $('reset-settings').addEventListener('click', () => { settings = { ...defaults }; saveSettings(); });
+
   searchEl.addEventListener('input', () => {
     const query = searchEl.value.trim();
-    rows.forEach((row, i) => { const text = row.querySelector('.text'); text.replaceChildren(); appendHighlightedText(text, renderedItems[i].text, query); });
+    rows.forEach((row, index) => {
+      const text = row.querySelector('.text');
+      text.replaceChildren();
+      appendHighlightedText(text, renderedItems[index].text, query);
+    });
   });
+
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes[SETTINGS_KEY]?.newValue) { settings = { ...defaults, ...changes[SETTINGS_KEY].newValue }; applySettingsToDom(); render(); }
-  });
-  chrome.runtime.onMessage.addListener(message => {
-    if (message?.type === 'IVW_STATE') applyState(message.state);
-    if (message?.type === 'IVW_TIME') {
-      if (message.videoId && state.videoId && message.videoId !== state.videoId) {
-        state = { ...state, videoId: message.videoId, playerVideoId: message.videoId, language: '', segments: [], currentTime: Number(message.currentTime) || 0, status: 'Waiting for captions for this video. Enable CC if needed.' }; render();
-      } else { state.currentTime = Number(message.currentTime) || 0; updateActive(); }
+    if (area === 'local' && changes[SETTINGS_KEY]?.newValue) {
+      settings = { ...defaults, ...changes[SETTINGS_KEY].newValue };
+      applySettingsToDom();
+      render();
     }
   });
+
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type === 'IVW_STATE') {
+      if (isWindowMode && message.sourceTabId != null && message.sourceTabId !== fixedSourceTabId) return;
+      if (!isWindowMode && message.target === 'sidepanel' && message.sourceTabId != null &&
+          sidePanelSourceTabId != null && message.sourceTabId !== sidePanelSourceTabId) return;
+      if (!isWindowMode && message.sourceTabId != null) sidePanelSourceTabId = message.sourceTabId;
+      applyState(message.state);
+    }
+    if (message?.type === 'IVW_TIME') {
+      if (isWindowMode && message.sourceTabId != null && message.sourceTabId !== fixedSourceTabId) return;
+      if (!isWindowMode && message.sourceTabId != null && sidePanelSourceTabId != null &&
+          message.sourceTabId !== sidePanelSourceTabId) return;
+      if (message.videoId && state.videoId && message.videoId !== state.videoId) {
+        state = {
+          ...state, videoId: message.videoId, language: '', segments: [],
+          currentTime: Number(message.currentTime) || 0,
+          status: 'Waiting for captions for this video. Enable CC if needed.'
+        };
+        render();
+      } else {
+        state.currentTime = Number(message.currentTime) || 0;
+        updateActive();
+      }
+    }
+  });
+
+  async function refreshState() {
+    try {
+      const result = await chrome.runtime.sendMessage({ type: 'IVW_GET_STATE' });
+      if (result?.state) {
+        sidePanelSourceTabId = result.sourceTabId ?? null;
+        applyState(result.state);
+      }
+      statusEl.textContent = state.status || 'Waiting for captions…';
+    } catch (_) {
+      statusEl.textContent = 'Could not connect to extension service worker. Reload the extension.';
+    }
+  }
+
   (async () => {
-    try { const saved = await chrome.storage.local.get(SETTINGS_KEY); settings = { ...defaults, ...(saved[SETTINGS_KEY] || {}) }; } catch (_) {}
-    applySettingsToDom(); render();
-    chrome.runtime.sendMessage({ type:'IVW_GET_STATE' }).then(result => { if (result?.state) applyState(result.state); statusEl.textContent = state.status || 'Waiting for captions…'; }).catch(() => { statusEl.textContent = 'Could not connect to extension service worker. Reload the extension.'; });
+    try {
+      const saved = await chrome.storage.local.get(SETTINGS_KEY);
+      settings = { ...defaults, ...(saved[SETTINGS_KEY] || {}) };
+    } catch (_) {}
+    applySettingsToDom();
+    render();
+    await refreshState();
   })();
 })();
