@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Insights.gg Transcript</title>
   <style>
-    body{margin:0;padding:18px;width:260px;background:#11131a;color:#f4f4f8;font:14px/1.45 Arial,sans-serif}
-    h1{font-size:16px;margin:0 0 8px}p{margin:0 0 14px;color:#b7bac8;font-size:12px}
-    button{width:100%;border:0;border-radius:8px;padding:11px 12px;background:#6558f5;color:white;font-weight:700;cursor:pointer}
-    button:disabled{opacity:.65;cursor:wait}.hint{margin-top:12px;font-size:11px;color:#9296a8}
+    body{margin:0;padding:16px;width:270px;background:#11131a;color:#f4f4f8;font:13px/1.45 Arial,sans-serif}
+    h1{font-size:16px;margin:0 0 7px}p{margin:0 0 13px;color:#b7bac8;font-size:12px}
+    button{width:100%;border:0;border-radius:7px;padding:10px 12px;background:#6558f5;color:white;font-weight:700;cursor:pointer;margin-top:7px}
+    button.secondary{background:#292d39;border:1px solid #3a4050}button:disabled{opacity:.6;cursor:wait}
+    .hint{margin-top:10px;font-size:11px;color:#9296a8;min-height:15px}
   </style>
 </head>
 <body>
   <h1>VOD Transcript</h1>
-  <p>Open a transcript window for the current Insights.gg VOD.</p>
-  <button id="open" type="button">Open transcript</button>
-  <div class="hint" id="hint">Open a VOD page first. Enable YouTube CC if captions do not appear.</div>
+  <p>Choose where to display the transcript for this Insights.gg VOD.</p>
+  <button id="open-sidepanel" type="button">Open in Side Panel</button>
+  <button id="open-window" class="secondary" type="button">Open in separate window</button>
+  <div class="hint" id="hint">The Side Panel is the default experience.</div>
   <script src="popup.js"></script>
 </body>
 </html>
