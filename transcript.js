@@ -91,7 +91,6 @@
       if(isWindowMode&&message.sourceTabId!=null&&message.sourceTabId!==fixedSourceTabId)return;
       if(!isWindowMode&&message.target==='sidepanel'&&message.sourceTabId!=null&&displayedSourceTabId!=null&&message.sourceTabId!==displayedSourceTabId)return;
       if(!isWindowMode&&message.target==='sidepanel'&&message.sourceTabId!=null)displayedSourceTabId=message.sourceTabId;
-      if(!isWindowMode&&message.state?.status==='Open an Insights.gg VOD to view its transcript.')displayedSourceTabId=message.sourceTabId;
       applyState(message.state);
     }
     if(message?.type==='IVW_TIME'){
