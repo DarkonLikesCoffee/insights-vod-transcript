@@ -1,20 +1,31 @@
 'use strict';
-const button = document.getElementById('open');
+
+const sidePanelButton = document.getElementById('open-sidepanel');
+const windowButton = document.getElementById('open-window');
 const hint = document.getElementById('hint');
-button.addEventListener('click', async () => {
+
+async function currentVodTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab.url ||
+      !/^https:\/\/(?:[^/]+\.)?insights\.gg\/dashboard\/video\//.test(tab.url)) {
+    throw new Error('Open an Insights.gg VOD page first.');
+  }
+  return tab;
+}
+
+async function open(mode, button) {
   button.disabled = true;
+  hint.textContent = '';
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || !tab.url || !/^https:\/\/(?:[^/]+\.)?insights\.gg\/dashboard\/video\//.test(tab.url)) {
-      hint.textContent = 'Open an Insights.gg VOD page first, then click the extension icon.';
-      return;
-    }
-    await chrome.runtime.sendMessage({ type: 'IVW_OPEN_TRANSCRIPT', sourceTabId: tab.id });
+    const tab = await currentVodTab();
+    await chrome.runtime.sendMessage({ type: 'IVW_OPEN_TRANSCRIPT', sourceTabId: tab.id, mode });
     window.close();
   } catch (error) {
-    hint.textContent = 'Could not open transcript. Reload the extension and try again.';
-    console.error('[Insights Transcript]', error);
+    hint.textContent = error.message || 'Could not open transcript. Reload the extension and try again.';
   } finally {
     button.disabled = false;
   }
-});
+}
+
+sidePanelButton.addEventListener('click', () => open('sidepanel', sidePanelButton));
+windowButton.addEventListener('click', () => open('window', windowButton));
