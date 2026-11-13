@@ -5,28 +5,38 @@
   const DEFAULT_PAUSE_SECONDS = 1.8;
   const SENTENCE_END = /[.!?…]["'’”)}\]]*$/;
 
+  function normalizeText(text) {
+    return String(text || '').replace(/\s+/g, ' ').trim();
+  }
+
   function countWords(text) {
-    return String(text || '').match(/\S+/g)?.length || 0;
+    return normalizeText(text).match(/\S+/g)?.length || 0;
   }
 
   function parseJson3(json) {
     if (!json || !Array.isArray(json.events)) return [];
     return json.events.flatMap(event => {
-      const text = (event.segs || [])
+      const text = (Array.isArray(event.segs) ? event.segs : [])
         .map(segment => segment.utf8 || '')
-        .join('')
-        .replace(/\\s+/g, ' ')
-        .trim();
-      if (!text) return [];
+        .join('');
+      const normalizedText = normalizeText(text);
+      if (!normalizedText) return [];
+
       const start = Math.max(0, Number(event.tStartMs) || 0) / 1000;
       const duration = Math.max(0, Number(event.dDurationMs) || 0) / 1000;
-      return [{ start, duration, end: start + duration, text }];
+      return [{ start, duration, end: start + duration, text: normalizedText }];
     });
   }
 
   function groupSegments(segments, options = {}) {
-    const maxWords = Math.max(10, Number(options.maxWords) || DEFAULT_MAX_WORDS);
-    const pauseSeconds = Math.max(0, Number(options.pauseSeconds) || DEFAULT_PAUSE_SECONDS);
+    const requestedMaxWords = Number(options.maxWords);
+    const requestedPause = Number(options.pauseSeconds);
+    const maxWords = Number.isFinite(requestedMaxWords) && requestedMaxWords >= 10
+      ? requestedMaxWords
+      : DEFAULT_MAX_WORDS;
+    const pauseSeconds = Number.isFinite(requestedPause) && requestedPause >= 0
+      ? requestedPause
+      : DEFAULT_PAUSE_SECONDS;
     const result = [];
     let paragraph = null;
     let paragraphWords = 0;
@@ -39,7 +49,7 @@
 
     for (let index = 0; index < (Array.isArray(segments) ? segments.length : 0); index += 1) {
       const segment = segments[index] || {};
-      const text = String(segment.text || '').replace(/\s+/g, ' ').trim();
+      const text = normalizeText(segment.text);
       if (!text) continue;
 
       const start = Number(segment.start);
@@ -51,7 +61,7 @@
         : Number.isFinite(segmentEnd) && segmentEnd > safeStart
           ? segmentEnd
           : safeStart;
-      const wordList = text.split(/\\s+/);
+      const wordList = text.split(/\s+/);
       const words = wordList.length;
       const gap = paragraph ? safeStart - paragraph.end : 0;
 
@@ -76,7 +86,7 @@
       if (!paragraph) {
         paragraph = { start: safeStart, end, text, firstIndex: index, lastIndex: index };
       } else {
-        paragraph.text += ` ${text}`;
+        paragraph.text += \` \${text}\`;
         paragraph.end = Math.max(paragraph.end, end);
         paragraph.lastIndex = index;
       }
