@@ -3,7 +3,7 @@
 Version 1.0.1. Chrome Manifest V3 extension that captures captions from the embedded YouTube player on Insights.gg VODs and displays a synchronized transcript in Chrome's Side Panel or a separate window.
 
 ## Features
-- Clicking the extension icon on an Insights.gg VOD opens Chrome's native Side Panel.
+- Clicking the extension icon opens a small chooser, with **Open in Side Panel** as the primary option and **Open in separate window** as the alternative.
 - The action popup offers **Open in Side Panel** (primary) and **Open in separate window**.
 - The Side Panel follows the active Insights.gg VOD tab. Each VOD tab has an independent transcript context.
 - The separate window remains pinned to the VOD that opened it.
@@ -16,7 +16,7 @@ Version 1.0.1. Chrome Manifest V3 extension that captures captions from the embe
 ## Install
 1. Open `chrome://extensions` and enable Developer mode.
 2. Select **Load unpacked** and choose the folder containing `manifest.json`.
-3. Open an Insights.gg VOD and click the extension icon to open the Side Panel.
+3. Open an Insights.gg VOD, click the extension icon, and choose **Open in Side Panel**.
 4. To use the alternative window, click the extension icon and select **Open in separate window**.
 
 ## Development and tests
