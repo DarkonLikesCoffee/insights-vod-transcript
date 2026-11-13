@@ -214,7 +214,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type === 'IVW_STATUS') {
       context.state = { ...context.state, status: String(message.status || 'Transcript unavailable') };
       await persistContext(tabId, context);
-      if (tabId === activeTabId) await publishState(tabId, 'sidepanel');
+      if (displayMode === 'sidepanel' && tabId === activeTabId) await publishState(tabId, 'sidepanel');
       if (displayMode === 'window' && tabId === sourceTabId) await publishState(tabId, 'window');
     }
   })().catch(error => console.warn(PREFIX, 'message handler failed', error));
