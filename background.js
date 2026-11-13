@@ -18,6 +18,8 @@ const ready = (async () => {
   sourceTabId = data[SOURCE_KEY] ?? null;
   windowId = data[WINDOW_KEY] ?? null;
   displayMode = data[MODE_KEY] || 'sidepanel';
+  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  activeTabId = activeTab?.id ?? null;
 })();
 
 function isVodUrl(url) {
@@ -112,7 +114,7 @@ async function openTranscript(tabId,mode){
   try{await chrome.sidePanel.setOptions({tabId,enabled:false});}catch(_){}
   if(windowId!=null){
     try{
-      const win=await chrome.windows.get(windowId);
+      const win=await chrome.windows.get(windowId,{populate:true});
       const bound=new URL(win.tabs?.[0]?.url||'chrome-extension://invalid').searchParams.get('sourceTabId');
       if(Number(bound)===tabId){
         await chrome.windows.update(windowId,{focused:true});
