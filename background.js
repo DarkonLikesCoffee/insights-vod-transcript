@@ -131,14 +131,6 @@ async function openTranscript(tabId,mode){
   windowId=created.id;
   await chrome.storage.local.set({[WINDOW_KEY]:windowId});
 }
-chrome.action.onClicked.addListener(tab=>{
-  if(!tab?.id||!isVodUrl(tab.url||''))return;
-  // Invoke open() immediately in the action click handler to preserve Chrome's
-  // required user activation. State setup can safely happen afterwards.
-  chrome.sidePanel.open({tabId:tab.id})
-    .then(()=>activateSidePanel(tab.id,false))
-    .catch(error=>console.warn(PREFIX,'could not open Side Panel',error));
-});
 chrome.runtime.onMessage.addListener((message,sender,sendResponse)=>{
   if(message?.type==='IVW_DISPLAY_SELECTED'||message?.type==='IVW_OPEN_TRANSCRIPT'){
     (async()=>{
