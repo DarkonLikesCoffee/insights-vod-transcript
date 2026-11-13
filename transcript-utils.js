@@ -58,7 +58,7 @@
     return result;
   }
 
-  const api = Object.freeze({ countWords, groupSegments });
+  const api = Object.freeze({ normalizeText, countWords, groupSegments });
   root.InsightsTranscriptUtils = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
