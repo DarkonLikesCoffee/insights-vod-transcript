@@ -40,6 +40,10 @@
     const videoId = getVideoId() || 'unknown';
 
     if (!segments.length) {
+      const emptyKey = `empty:${videoId}:${language || ''}`;
+      if (sent.has(emptyKey)) return;
+      sent.add(emptyKey);
+      if (sent.size > 20) sent.delete(sent.values().next().value);
       chrome.runtime.sendMessage({
         type: 'IVW_TRANSCRIPT',
         videoId,
@@ -50,7 +54,7 @@
       return;
     }
 
-    const key = `${videoId}:${fingerprint(segments)}`;
+    const key = `${videoId}:${language || ''}:${fingerprint(segments)}`;
     if (sent.has(key)) return;
     sent.add(key);
     if (sent.size > 20) sent.delete(sent.values().next().value);
