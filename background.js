@@ -1,127 +1,291 @@
 'use strict';
+
 const PREFIX = '[Insights Transcript]';
-const STATE_KEY = 'ivwTranscriptState';
+const STATE_KEY = tabId => `ivwTranscriptState:${tabId}`;
 const SOURCE_KEY = 'ivwSourceTabId';
 const WINDOW_KEY = 'ivwTranscriptWindowId';
-const initialState = () => ({ videoId: '', playerVideoId: '', language: '', segments: [], currentTime: 0, status: 'Waiting for captions. Start playback and enable CC if needed.', updatedAt: Date.now() });
+const MODE_KEY = 'ivwDisplayMode';
+const initialState = () => ({
+  videoId: '', playerVideoId: '', language: '', segments: [], currentTime: 0,
+  status: 'Waiting for captions. Start playback and enable CC if needed.',
+  updatedAt: Date.now()
+});
+
+// Keep one independent context per Insights tab. The Side Panel follows the
+// active browser tab; a separate window stays pinned to the VOD that opened it.
+const contexts = new Map();
 let sourceTabId = null;
 let windowId = null;
-let activeVideoId = '';
-let currentTime = 0;
-let stateCache = initialState();
+let displayMode = 'sidepanel';
+let activeTabId = null;
 
-// Load only once on worker startup. Playback ticks never read or write transcript storage.
 const ready = (async () => {
-  const data = await chrome.storage.local.get([STATE_KEY, SOURCE_KEY, WINDOW_KEY]);
-  stateCache = data[STATE_KEY] || initialState();
+  const data = await chrome.storage.local.get([SOURCE_KEY, WINDOW_KEY, MODE_KEY]);
   sourceTabId = data[SOURCE_KEY] ?? null;
   windowId = data[WINDOW_KEY] ?? null;
-  activeVideoId = stateCache.playerVideoId || stateCache.videoId || '';
-  currentTime = Number(stateCache.currentTime) || 0;
+  displayMode = data[MODE_KEY] || 'sidepanel';
 })();
-async function sendTranscriptMessage(message) {
+
+function isVodUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)insights\.gg$/i.test(parsed.hostname) &&
+      /^\/dashboard\/video\//.test(parsed.pathname);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function getContext(tabId) {
   await ready;
+  if (!contexts.has(tabId)) {
+    const context = { state: initialState(), activeVideoId: '', currentTime: 0, loaded: false };
+    contexts.set(tabId, context);
+  }
+  const context = contexts.get(tabId);
+  if (!context.loaded) {
+    const stored = await chrome.storage.local.get(STATE_KEY(tabId));
+    if (stored[STATE_KEY(tabId)]) context.state = stored[STATE_KEY(tabId)];
+    context.activeVideoId = context.state.playerVideoId || context.state.videoId || '';
+    context.currentTime = Number(context.state.currentTime) || 0;
+    context.loaded = true;
+  }
+  return context;
+}
+
+async function persistContext(tabId, context) {
+  context.state = { ...context.state, updatedAt: Date.now() };
+  await chrome.storage.local.set({ [STATE_KEY(tabId)]: context.state });
+}
+
+async function getActiveVodTab() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tab?.id && isVodUrl(tab.url || '')) return tab.id;
+  return null;
+}
+
+async function sendToWindow(message) {
   if (windowId == null) return;
   try {
     const win = await chrome.windows.get(windowId, { populate: true });
     const tabId = win.tabs?.[0]?.id;
     if (tabId != null) await chrome.tabs.sendMessage(tabId, message);
-  } catch (_) {}
+  } catch (_) {
+    // The transcript window may be in the process of closing.
+  }
 }
-async function persistState(next, sendFull = false) {
-  stateCache = { ...next, updatedAt: Date.now() };
-  await chrome.storage.local.set({ [STATE_KEY]: stateCache });
-  if (sendFull) await sendTranscriptMessage({ type: 'IVW_STATE', state: { ...stateCache, currentTime } });
-  return stateCache;
+
+async function publishState(tabId, mode = displayMode) {
+  const context = await getContext(tabId);
+  const payload = { type: 'IVW_STATE', state: { ...context.state, currentTime: context.currentTime }, sourceTabId: tabId };
+  if (mode === 'window') {
+    await sendToWindow(payload);
+  } else {
+    // Runtime messages are received by the single Side Panel document. The
+    // sourceTabId lets it ignore late messages from tabs that are no longer active.
+    try { await chrome.runtime.sendMessage({ ...payload, target: 'sidepanel' }); } catch (_) {}
+  }
 }
-async function resetForVideo(videoId) {
-  await ready;
-  if (!videoId || activeVideoId === videoId) return stateCache;
-  activeVideoId = videoId;
-  currentTime = 0;
+
+async function resetForVideo(tabId, videoId) {
+  const context = await getContext(tabId);
+  if (!videoId || context.activeVideoId === videoId) return context;
+  context.activeVideoId = videoId;
+  context.currentTime = 0;
   const next = initialState();
   next.playerVideoId = videoId;
   next.status = 'Waiting for captions for this video. Enable CC if needed.';
-  return persistState(next, true);
+  context.state = next;
+  await persistContext(tabId, context);
+  if (tabId === activeTabId) await publishState(tabId);
+  return context;
 }
+
+async function openTranscript(tabId, mode) {
+  await ready;
+  if (!tabId) throw new Error('No active Insights.gg VOD tab.');
+  sourceTabId = tabId;
+  activeTabId = tabId;
+  displayMode = mode;
+  await chrome.storage.local.set({ [SOURCE_KEY]: sourceTabId, [MODE_KEY]: displayMode });
+  await getContext(tabId);
+
+  if (mode === 'sidepanel') {
+    await chrome.sidePanel.setOptions({ tabId, path: 'transcript.html', enabled: true });
+    await chrome.sidePanel.open({ tabId });
+    await publishState(tabId, 'sidepanel');
+    return;
+  }
+
+  if (windowId != null) {
+    try {
+      await chrome.windows.get(windowId);
+      await chrome.windows.update(windowId, { focused: true });
+      await publishState(tabId, 'window');
+      return;
+    } catch (_) {
+      windowId = null;
+    }
+  }
+
+  const win = await chrome.windows.create({
+    url: chrome.runtime.getURL(`transcript.html?mode=window&sourceTabId=${tabId}`),
+    type: 'popup',
+    focused: true,
+    width: 620,
+    height: 760
+  });
+  windowId = win.id;
+  await chrome.storage.local.set({ [WINDOW_KEY]: windowId });
+}
+
+chrome.action.onClicked.addListener(async tab => {
+  try {
+    if (!tab?.id || !isVodUrl(tab.url || '')) return;
+    await openTranscript(tab.id, 'sidepanel');
+  } catch (error) {
+    console.warn(PREFIX, 'could not open Side Panel', error);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     await ready;
+
     if (message?.type === 'IVW_OPEN_TRANSCRIPT') {
-      const tabId = message.sourceTabId ?? sender.tab?.id;
+      const tabId = message.sourceTabId ?? sender.tab?.id ?? await getActiveVodTab();
       if (tabId == null) return;
-      const previousSource = sourceTabId;
-      sourceTabId = tabId;
-      await chrome.storage.local.set({ [SOURCE_KEY]: sourceTabId });
-      if (previousSource !== tabId) {
-        activeVideoId = ''; currentTime = 0;
-        await persistState(initialState(), false);
-      }
-      if (windowId != null) {
+      await openTranscript(tabId, message.mode === 'window' ? 'window' : 'sidepanel');
+      return;
+    }
+
+    if (message?.type === 'IVW_GET_STATE') {
+      if (sender.id !== chrome.runtime.id ||
+          !sender.url?.startsWith(chrome.runtime.getURL('transcript.html'))) return;
+      const url = new URL(sender.url);
+      const tabId = url.searchParams.get('mode') === 'window'
+        ? Number(url.searchParams.get('sourceTabId')) || sourceTabId
+        : await getActiveVodTab();
+      const context = tabId != null ? await getContext(tabId) : null;
+      sendResponse({
+        state: context ? { ...context.state, currentTime: context.currentTime } : initialState(),
+        sourceTabId: tabId,
+        displayMode: url.searchParams.get('mode') === 'window' ? 'window' : 'sidepanel'
+      });
+      return;
+    }
+
+    if (message?.type === 'IVW_SEEK_TIME') {
+      if (sender.id !== chrome.runtime.id ||
+          !sender.url?.startsWith(chrome.runtime.getURL('transcript.html'))) return;
+      const url = new URL(sender.url);
+      const tabId = url.searchParams.get('mode') === 'window'
+        ? Number(url.searchParams.get('sourceTabId')) || sourceTabId
+        : await getActiveVodTab();
+      if (tabId != null) {
         try {
-          await chrome.windows.get(windowId);
-          await chrome.windows.update(windowId, { focused: true });
-          await sendTranscriptMessage({ type: 'IVW_STATE', state: { ...stateCache, currentTime } });
-          return;
+          await chrome.tabs.sendMessage(tabId, {
+            type: 'IVW_SEEK_TIME',
+            time: Math.max(0, Number(message.time) || 0)
+          });
         } catch (_) {}
       }
-      const win = await chrome.windows.create({ url: chrome.runtime.getURL('transcript.html'), type: 'popup', focused: true, width: 620, height: 760 });
-      windowId = win.id;
-      await chrome.storage.local.set({ [WINDOW_KEY]: windowId });
       return;
     }
-    if (message?.type === 'IVW_GET_STATE') {
-      // Only the extension's own transcript page may request its current state.
-      if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('transcript.html')) return;
-      sendResponse({ state: { ...stateCache, currentTime }, sourceTabId, windowId });
-      return;
-    }
-    // Seeking originates in the extension transcript window, not the Insights tab.
-    // Validate the extension page explicitly, then relay only to the stored source tab.
-    if (message?.type === 'IVW_SEEK_TIME') {
-      if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('transcript.html')) return;
-      const time = Math.max(0, Number(message.time) || 0);
-      if (sourceTabId != null) {
-        try { await chrome.tabs.sendMessage(sourceTabId, { type: 'IVW_SEEK_TIME', time }); } catch (_) {}
+
+    const tabId = sender.tab?.id;
+    if (tabId == null) return;
+    const context = await getContext(tabId);
+
+    if (message?.type === 'IVW_TIME') {
+      const videoId = message.videoId || '';
+      if (videoId && context.activeVideoId && videoId !== context.activeVideoId) {
+        await resetForVideo(tabId, videoId);
+      } else if (videoId && !context.activeVideoId) {
+        context.activeVideoId = videoId;
+      }
+      context.currentTime = Number(message.currentTime) || 0;
+      if (tabId === activeTabId) {
+        try {
+          await chrome.runtime.sendMessage({
+            type: 'IVW_TIME', target: 'sidepanel', sourceTabId: tabId,
+            videoId, currentTime: context.currentTime
+          });
+        } catch (_) {}
+      }
+      if (displayMode === 'window' && tabId === sourceTabId) {
+        await sendToWindow({ type: 'IVW_TIME', sourceTabId: tabId, videoId, currentTime: context.currentTime });
       }
       return;
     }
-    // Ignore messages from any other tab before doing any storage work.
-    if (sourceTabId != null && sender.tab?.id !== sourceTabId) return;
-    if (message?.type === 'IVW_TIME') {
-      const videoId = message.videoId || '';
-      if (videoId && activeVideoId && videoId !== activeVideoId) await resetForVideo(videoId);
-      else if (videoId && !activeVideoId) activeVideoId = videoId;
-      currentTime = Number(message.currentTime) || 0;
-      await sendTranscriptMessage({ type: 'IVW_TIME', videoId, currentTime });
-      return;
-    }
+
     if (message?.type === 'IVW_TRANSCRIPT') {
       const videoId = message.videoId || '';
-      if (videoId && activeVideoId && videoId !== activeVideoId) await resetForVideo(videoId);
-      if (videoId) activeVideoId = videoId;
+      if (videoId && context.activeVideoId && videoId !== context.activeVideoId) {
+        await resetForVideo(tabId, videoId);
+      }
+      if (videoId) context.activeVideoId = videoId;
       const segments = Array.isArray(message.segments) ? message.segments : [];
-      const next = { ...stateCache, videoId, playerVideoId: videoId || activeVideoId, language: message.language || '', segments, currentTime, status: segments.length ? 'Transcript ready' : (message.status || 'No captions found for this video.') };
-      await persistState(next, true);
-      console.info(PREFIX, 'transcript update', { videoId, segments: segments.length, status: next.status });
+      context.state = {
+        ...context.state,
+        videoId,
+        playerVideoId: videoId || context.activeVideoId,
+        language: message.language || '',
+        segments,
+        currentTime: context.currentTime,
+        status: segments.length ? 'Transcript ready' :
+          (message.status || 'No captions found for this video.')
+      };
+      await persistContext(tabId, context);
+      if (tabId === activeTabId) await publishState(tabId, 'sidepanel');
+      if (displayMode === 'window' && tabId === sourceTabId) await publishState(tabId, 'window');
       return;
     }
+
     if (message?.type === 'IVW_STATUS') {
-      await persistState({ ...stateCache, status: String(message.status || 'Transcript unavailable') }, true);
-      return;
+      context.state = { ...context.state, status: String(message.status || 'Transcript unavailable') };
+      await persistContext(tabId, context);
+      if (tabId === activeTabId) await publishState(tabId, 'sidepanel');
+      if (displayMode === 'window' && tabId === sourceTabId) await publishState(tabId, 'window');
     }
   })().catch(error => console.warn(PREFIX, 'message handler failed', error));
+
   return message?.type === 'IVW_GET_STATE';
 });
+
+chrome.tabs.onActivated.addListener(async info => {
+  await ready;
+  activeTabId = info.tabId;
+  const tab = await chrome.tabs.get(info.tabId).catch(() => null);
+  if (!tab || !isVodUrl(tab.url || '')) return;
+  await publishState(info.tabId, 'sidepanel');
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  await ready;
+  if (tab.active && (changeInfo.status === 'complete' || changeInfo.url)) {
+    if (isVodUrl(tab.url || '')) {
+      activeTabId = tabId;
+      await publishState(tabId, 'sidepanel');
+    }
+  }
+});
+
 chrome.windows.onRemoved.addListener(async removedId => {
   await ready;
-  if (windowId === removedId) { windowId = null; await chrome.storage.local.remove(WINDOW_KEY); }
+  if (windowId === removedId) {
+    windowId = null;
+    await chrome.storage.local.remove(WINDOW_KEY);
+  }
 });
+
 chrome.tabs.onRemoved.addListener(async removedTabId => {
   await ready;
+  contexts.delete(removedTabId);
+  await chrome.storage.local.remove(STATE_KEY(removedTabId));
   if (sourceTabId === removedTabId) {
-    sourceTabId = null; activeVideoId = ''; currentTime = 0;
-    await chrome.storage.local.remove([SOURCE_KEY, STATE_KEY]);
-    stateCache = initialState();
+    sourceTabId = null;
+    await chrome.storage.local.remove(SOURCE_KEY);
   }
+  if (activeTabId === removedTabId) activeTabId = null;
 });
