@@ -2,7 +2,7 @@
   'use strict';
   const $=id=>document.getElementById(id),transcriptEl=$('transcript'),statusEl=$('status'),searchEl=$('search');
   const SETTINGS_KEY='ivwTranscriptSettings';
-  const { groupSegments } = globalThis.InsightsTranscriptUtils;
+  const { groupSegments, normalizeText } = globalThis.InsightsTranscriptUtils;
   const defaults={layout:'individual',density:'compact',fontSize:13,fontFamily:'system',showTimestamps:true,autoScroll:true,theme:'dark'};
   let settings={...defaults},state={videoId:'',language:'',segments:[],currentTime:0,status:'Waiting for captions…'};
   let activeIndex=-1,rows=[],renderedItems=[],displayedSourceTabId=null;
