@@ -11,6 +11,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'u
 const scripts = new Set([
   manifest.background.service_worker,
   'popup.js',
+  'transcript.js',
   ...manifest.content_scripts.flatMap(entry => entry.js)
 ]);
 
