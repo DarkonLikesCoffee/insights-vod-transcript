@@ -181,7 +181,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (videoId && context.activeVideoId && videoId !== context.activeVideoId) await resetVideo(tabId, videoId);
       else if (videoId && !context.activeVideoId) context.activeVideoId = videoId;
       context.currentTime = Number(message.currentTime) || 0;
-      if (tabId === activeTabId) {
+      if (displayMode === 'sidepanel' && tabId === activeTabId) {
         try {
           await chrome.runtime.sendMessage({
             type: 'IVW_TIME', target: 'sidepanel', sourceTabId: tabId,
@@ -206,7 +206,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         status: segments.length ? 'Transcript ready' : (message.status || 'No captions found for this video.')
       };
       await persistContext(tabId, context);
-      if (tabId === activeTabId) await publishState(tabId, 'sidepanel');
+      if (displayMode === 'sidepanel' && tabId === activeTabId) await publishState(tabId, 'sidepanel');
       if (displayMode === 'window' && tabId === sourceTabId) await publishState(tabId, 'window');
       return;
     }
